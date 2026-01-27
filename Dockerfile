@@ -1,4 +1,4 @@
-FROM ghcr.io/clawdbot/clawdbot:main
+FROM ghcr.io/moltbot/clawdbot:main
 
 USER root
 
