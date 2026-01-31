@@ -452,10 +452,19 @@ fi
 
 
 
-# Install QMD Skills (Context search)
-if [ ! -d "skills/qmd-skills" ]; then
-    echo "📦 Installing QMD Skills..."
-    npx -y skills add http://github.com/levineam/qmd-skills >/dev/null 2>&1 || echo "⚠️ QMD Skills install warning (check logs)"
+# Managed Skills Automation
+echo "📦 Synchronizing Core Skills..."
+# Standardized skills from the Hacker Suite
+# npx skills add will skip if already installed correctly or handle updates
+npx skills add vercel-labs/agent-skills >/dev/null 2>&1 || true
+npx skills add http://github.com/levineam/qmd-skills >/dev/null 2>&1 || true
+
+# Local skill indexing (ensure custom local skills are registered)
+if [ -d "skills/web-utils" ]; then
+  npx skills add ./skills/web-utils >/dev/null 2>&1 || true
+fi
+if [ -d "skills/sandbox-manager" ]; then
+  npx skills add ./skills/sandbox-manager >/dev/null 2>&1 || true
 fi
 
 # Cloudflare Tunnel Auto-Start
