@@ -61,9 +61,8 @@ services:
       OPENCLAW_AUTO_BOOTSTRAP: "1"
       OPENCLAW_PRINT_ACCESS: "1"
       GATEWAY_TRUSTED_PROXIES: '*'
-      # Docker Socket Proxy
-      DOCKER_HOST: tcp://docker-proxy:2375
       # Public URL Access
+
       CF_TUNNEL_TOKEN: ${CF_TUNNEL_TOKEN}
       # Deployment & Git
       VERCEL_ORG_ID: ${VERCEL_ORG_ID}
