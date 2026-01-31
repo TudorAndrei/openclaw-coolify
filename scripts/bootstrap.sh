@@ -1,536 +1,76 @@
 #!/usr/bin/env bash
 set -e
 
-# State directories - Moltbot/Clawdbot overlap
-# Binary might look for either depending on version
-# State directories
-# State directories
 OPENCLAW_STATE="/root/.openclaw"
 CONFIG_FILE="$OPENCLAW_STATE/openclaw.json"
 WORKSPACE_DIR="/root/openclaw-workspace"
 
-# Memory Optimization: Add swap if less than 512MB free and no swap active
-# This helps stability on 1GB RAM Coolify/DigitalOcean nodes
+# ----------------------------
+# Memory: add swap if missing
+# ----------------------------
 if [ "$(free -m | awk '/Swap/ {print $2}')" -eq 0 ]; then
-    echo "🧠 No swap detected. Initializing 2GB swapfile for stability..."
-    fallocate -l 2G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=2048
-    chmod 600 /swapfile
-    mkswap /swapfile >/dev/null
-    swapon /swapfile >/dev/null
-    echo "✅ Swap active."
+  echo "🧠 No swap detected. Creating 2GB swap..."
+  fallocate -l 2G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=2048
+  chmod 600 /swapfile
+  mkswap /swapfile >/dev/null
+  swapon /swapfile >/dev/null
 fi
 
 mkdir -p "$OPENCLAW_STATE" "$WORKSPACE_DIR"
 chmod 700 "$OPENCLAW_STATE"
 
-# Tighten permissions on config if it exists
-if [ -f "$CONFIG_FILE" ]; then
-  chmod 600 "$CONFIG_FILE"
-fi
-
-
-# Ensure credentials dir exists
-# Ensure credentials dir exists
 mkdir -p "$OPENCLAW_STATE/credentials"
 mkdir -p "$OPENCLAW_STATE/agents/main/sessions"
 chmod 700 "$OPENCLAW_STATE/credentials"
 
-# Universal Permission Hardening (Runtime Fail-safe)
-# Start universal permission hardening
-echo "🛡️ HARDENING CLI PERMISSIONS..."
-chmod -R +x /usr/local/bin/ || true
-
-# --- SEARCH & RESCUE: FIX PATHS FOR MISSING TOOLS ---
-echo "🕵️ SEARCHING FOR MISSING TOOLS..."
-POSSIBLE_PATHS=(
-  "/root/.bun/bin"
-  "/root/.openclaw/cache/.bun/bin"
-  "/root/.openclaw/bin"
-  "/root/.local/bin"
-  "/home/node/.bun/bin"
-  "/root/.bun/install/global/bin"
-)
-
-# Function to rescue a binary
-rescue_binary() {
-  local bin="$1"
-  if ! command -v "$bin" >/dev/null 2>&1; then
-    echo "  ❓ $bin not in PATH. Searching..."
-    found=""
-    for p in "${POSSIBLE_PATHS[@]}"; do
-      if [ -f "$p/$bin" ]; then
-        echo "  ✨ Found $bin at $p/$bin. Symlinking to /usr/local/bin..."
-        ln -sf "$p/$bin" "/usr/local/bin/$bin"
-        found="true"
-        break
-      fi
-    done
-    if [ -z "$found" ]; then
-      # Last resort: deep search in standard dirs (limited depth to be fast)
-      echo "  ⚠️ $bin still not found. Attempting deep search..."
-      deep_find=$(find /root /usr -maxdepth 4 -name "$bin" -type f -executable | head -n 1)
-      if [ -n "$deep_find" ]; then
-        echo "  ✨ Found via deep search at $deep_find. Symlinking..."
-        ln -sf "$deep_find" "/usr/local/bin/$bin"
-      else
-        echo "  ❌ Could not locate $bin anywhere."
-      fi
-    fi
-  else
-    echo "  ✅ $bin is already in PATH."
-  fi
-}
-
-# Rescue critical tools
-for target in openclaw gemini codex opencode claude kimi; do
-  rescue_binary "$target"
-done
-# ----------------------------------------------------
-
-# Tool Audit
-echo "🔍 AUDITING AI TOOL SUITE..."
-for tool in openclaw claude kimi opencode gemini codex; do
-  if command -v "$tool" >/dev/null 2>&1; then
-    echo "✅ $tool: $(command -v "$tool")"
-  else
-    echo "⚠️ $tool: NOT FOUND"
-  fi
-done
-
-# Ensure aliases work for interactive sessions
-echo "alias fd=fdfind" >> /root/.bashrc
-echo "alias bat=batcat" >> /root/.bashrc
-# Ensure aliases work for interactive sessions
-echo "alias fd=fdfind" >> /root/.bashrc
-echo "alias bat=batcat" >> /root/.bashrc
-echo "alias ll='ls -alF'" >> /root/.bashrc
-
-
-# Generate config on first boot
-if [ ! -f "$CONFIG_FILE" ]; then
-  if command -v openssl >/dev/null 2>&1; then
-    TOKEN="$(openssl rand -hex 24)"
-  else
-    TOKEN="$(node -e "console.log(require('crypto').randomBytes(24).toString('hex'))")"
-    TOKEN="$(node -e "console.log(require('crypto').randomBytes(24).toString('hex'))")"
-  fi
-
-
-
-DATE_UTC=$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")
-cat >"$CONFIG_FILE" <<EOF
-{
-  "wizard": {
-    "lastRunCommand": "doctor",
-    "lastRunAt": "$DATE_UTC"
-  },
-  "diagnostics": {
-    "otel": {
-      "enabled": true
-    }
-  },
-  "update": {
-    "channel": "stable"
-  },
-  "channels": {
-    "whatsapp": {
-      "dmPolicy": "pairing",
-      "groupPolicy": "allowlist",
-      "mediaMaxMb": 50,
-      "debounceMs": 0
-    },
-    "telegram": {
-      "enabled": true,
-      "botToken": "${TELEGRAM_BOT_TOKEN:-}",
-      "dmPolicy": "pairing",
-      "groupPolicy": "allowlist",
-      "streamMode": "partial"
-    },
-    "discord": {
-      "dm": {
-        "policy": "pairing"
-      },
-      "groupPolicy": "allowlist"
-    },
-    "googlechat": {
-      "dm": {
-        "policy": "pairing"
-      },
-      "groupPolicy": "allowlist"
-    },
-    "slack": {
-      "mode": "socket",
-      "webhookPath": "/slack/events",
-      "userTokenReadOnly": true,
-      "dm": {
-        "policy": "pairing"
-      },
-      "groupPolicy": "allowlist"
-    },
-    "signal": {
-      "dmPolicy": "pairing",
-      "groupPolicy": "allowlist"
-    },
-    "imessage": {
-      "dmPolicy": "pairing",
-      "groupPolicy": "allowlist"
-    }
-  },
-  "agents": {
-    "defaults": {
-      "model": {
-        "primary": "anthropic/anthropic:default",
-        "fallbacks": []
-      },
-      "workspace": "/root/openclaw-workspace",
-      "envelopeTimestamp": "on",
-      "envelopeElapsed": "on",
-      "cliBackends": {},
-      "memorySearch": {
-        "enabled": true,
-        "experimental": {
-          "sessionMemory": true
-        },
-        "provider": "gemini",
-        "remote": {
-          "batch": {
-            "enabled": true,
-            "wait": true
-          }
-        },
-        "fallback": "gemini",
-        "store": {
-          "vector": {
-            "enabled": true
-          }
-        },
-        "sync": {
-          "onSessionStart": true
-        },
-        "query": {
-          "hybrid": {
-            "enabled": true
-          }
-        },
-        "cache": {
-          "enabled": true
-        }
-      },
-      "contextPruning": {
-        "hardClear": {
-          "enabled": false
-        }
-      },
-      "compaction": {
-        "mode": "default",
-        "memoryFlush": {
-          "enabled": true
-        }
-      },
-      "elevatedDefault": "ask",
-      "blockStreamingBreak": "text_end",
-      "blockStreamingChunk": {
-        "breakPreference": "sentence"
-      },
-      "maxConcurrent": 4,
-      "subagents": {
-        "maxConcurrent": 8,
-        "model": {
-          "primary": "anthropic:default",
-          "fallbacks": []
-        }
-      },
-      "sandbox": {
-        "mode": "non-main",
-        "scope": "session",
-
-        "browser": {
-          "enabled": true
-        }
-      }
-    },
-    "list": [
-      {
-        "id": "main",
-        "name": "default",
-        "default": true,
-        "workspace": "/root/openclaw-workspace"
-      },
-      {
-        "id": "linkding",
-        "name": "Linkding Agent",
-        "workspace": "/root/openclaw-linkding"
-      },
-      {
-        "id": "dbadmin",
-        "name": "DB Administrator",
-        "workspace": "/root/openclaw-dbadmin"
-      }
-    ]
-  },
-  "bindings": [],
-  "tools": {
-    "agentToAgent": {
-      "enabled": true,
-      "allow": ["main", "linkding", "dbadmin"]
-    }
-  },
-  "messages": {
-    "ackReactionScope": "group-mentions"
-  },
-  "commands": {
-    "native": true,
-    "nativeSkills": true,
-    "text": true,
-    "bash": true,
-    "config": true,
-    "debug": true,
-    "restart": true,
-    "useAccessGroups": true
-  },
-  "hooks": {
-    "enabled": true,
-    "token": "$TOKEN",
-    "internal": {
-      "enabled": true,
-      "entries": {
-        "boot-md": {
-          "enabled": true
-        },
-        "command-logger": {
-          "enabled": true
-        },
-        "session-memory": {
-          "enabled": true
-        }
-      }
-    }
-  },
-  "gateway": {
-    "port": ${OPENCLAW_GATEWAY_PORT:-18789},
-    "mode": "local",
-    "bind": "lan",
-    "controlUi": {
-      "enabled": true,
-      "allowInsecureAuth": false
-    },
-    "auth": {
-      "mode": "token",
-      "token": "$TOKEN"
-    },
-    "trustedProxies": [
-      "*"
-    ],
-    "tailscale": {
-      "mode": "off",
-      "resetOnExit": false
-    }
-  },
-  "skills": {
-    "allowBundled": ["*"],
-    "install": {
-      "nodeManager": "bun"
-    }
-  },
-  "plugins": {
-    "entries": {
-      "telegram": {
-        "enabled": $([ -n "$TELEGRAM_BOT_TOKEN" ] && echo true || echo false)
-      },
-      "whatsapp": {
-        "enabled": true
-      },
-      "discord": {
-        "enabled": true
-      },
-      "googlechat": {
-        "enabled": true
-      },
-      "slack": {
-        "enabled": true
-      },
-      "signal": {
-        "enabled": true
-      },
-      "imessage": {
-        "enabled": false
-      },
-      "google-antigravity-auth": {
-        "enabled": true
-      }
-    }
-  },
-  "auth": {
-    "profiles": {
-      "anthropic:default": {
-        "provider": "anthropic",
-        "mode": "token"
-      }
-    }
-  }
-}
-EOF
-
-fi
-
-# Fix permissions as requested by doctor (ensure it runs after creation or if existing)
-if [ -f "$CONFIG_FILE" ]; then
-    chmod 600 "$CONFIG_FILE"
-fi
-
-# Update TOKEN if it was not set (e.g. if config already existed)
-if [ -z "$TOKEN" ]; then
-  TOKEN="$(jq -r '.gateway.auth.token' "$CONFIG_FILE" 2>/dev/null || jq -r '.gateway.auth.token' "$OPENCLAW_STATE/openclaw.json" 2>/dev/null || echo "")"
-fi
-
-
-
-# Ensure all possible naming variations exist on every boot for robustness
-ln -sf "$CONFIG_FILE" "$OPENCLAW_STATE/config.json" 2>/dev/null || true
-
-
-
-
+# ----------------------------
 # Seed Agent Workspaces
+# ----------------------------
 seed_agent() {
   local id="$1"
   local name="$2"
   local dir="/root/openclaw-$id"
-  if [ "$id" = "main" ]; then dir="/root/openclaw-workspace"; fi
 
-  if ! mkdir -p "$dir" 2>/dev/null; then
-    echo "⚠️ WARNING: Could not create directory $dir. Check volume permissions."
-    return 1
+  if [ "$id" = "main" ]; then
+    dir="/root/openclaw-workspace"
   fi
 
-  if [ ! -f "$dir/AGENTS.md" ]; then
-    if ! cat >"$dir/AGENTS.md" <<EOF; then
-# AGENTS.md - $name
-This is the workspace for $name.
-EOF
-      echo "⚠️ WARNING: Could not write to $dir/AGENTS.md. Permission denied."
-    fi
+  mkdir -p "$dir"
+
+  # 🔒 NEVER overwrite existing SOUL.md
+  if [ -f "$dir/SOUL.md" ]; then
+    echo "🧠 SOUL.md already exists for $id — skipping"
+    return 0
   fi
 
-  if [ ! -f "$dir/SOUL.md" ]; then
-    case "$id" in
-      main)
-        if [ -f "/root/SOUL.md" ]; then
-          echo "✨ Injecting OpenClaw SOUL into main workspace..."
-          cp "/root/SOUL.md" "$dir/SOUL.md"
-        elif [ -f "SOUL.md" ]; then
-          cp "SOUL.md" "$dir/SOUL.md"
-        else
-          cat >"$dir/SOUL.md" <<EOF
-# SOUL.md - OpenClaw
+  # ✅ MAIN agent gets ORIGINAL repo SOUL.md
+  if [ "$id" = "main" ] && [ -f "./SOUL.md" ]; then
+    echo "✨ Copying original SOUL.md to $dir"
+    cp "./SOUL.md" "$dir/SOUL.md"
+    return 0
+  fi
+
+  # fallback for other agents
+  cat >"$dir/SOUL.md" <<EOF
+# SOUL.md - $name
 You are OpenClaw, a helpful and premium AI assistant.
 EOF
-        fi
-        ;;
-      linkding)
-        cat >"$dir/SOUL.md" <<EOF
-# SOUL.md - Linkding Agent
-You are the Linkding Bookmark Assistant. Your primary goal is to help the user manage bookmarks.
-EOF
-        ;;
-      dbadmin)
-        cat >"$dir/SOUL.md" <<EOF
-# SOUL.md - DB Administrator
-You are the Database and Container Administrator. You monitor Postgres and manage SQLite subagent sandboxes.
-EOF
-        ;;
-      *)
-        cat >"$dir/SOUL.md" <<EOF
-# SOUL.md - OpenClaw
-You are OpenClaw, a helpful and premium AI assistant.
-EOF
-        ;;
-    esac
-  fi
 }
 
 seed_agent "main" "OpenClaw"
-seed_agent "linkding" "Linkding Agent"
-seed_agent "dbadmin" "DB Administrator"
 
-# Export state directory for the binary
+# ----------------------------
+# Export state
+# ----------------------------
 export OPENCLAW_STATE_DIR="$OPENCLAW_STATE"
 
-# Trigger sandbox image setup (ensure they are ready before doctor)
-if [ -f "scripts/sandbox-setup.sh" ]; then
-    bash scripts/sandbox-setup.sh
-fi
-if [ -f "scripts/sandbox-browser-setup.sh" ]; then
-    bash scripts/sandbox-browser-setup.sh
-fi
+# ----------------------------
+# Sandbox setup
+# ----------------------------
+[ -f scripts/sandbox-setup.sh ] && bash scripts/sandbox-setup.sh
+[ -f scripts/sandbox-browser-setup.sh ] && bash scripts/sandbox-browser-setup.sh
 
-# Resolve public URL (Coolify injects SERVICE_FQDN_OPENCLAW)
-if [ -n "$SERVICE_FQDN_OPENCLAW" ]; then
-  BASE_URL="https://${SERVICE_FQDN_OPENCLAW}"
-else
-  BASE_URL="http://localhost:${OPENCLAW_GATEWAY_PORT}"
-fi
-
-
-
-# Managed Skills Automation
-echo "📦 Synchronizing Core Skills..."
-# Standardized skills from the Hacker Suite
-# npx skills add will skip if already installed correctly or handle updates
-npx skills add vercel-labs/agent-skills >/dev/null 2>&1 || true
-npx skills add http://github.com/levineam/qmd-skills >/dev/null 2>&1 || true
-
-# Local skill indexing (ensure custom local skills are registered)
-if [ -d "skills/web-utils" ]; then
-  npx skills add ./skills/web-utils >/dev/null 2>&1 || true
-fi
-if [ -d "skills/sandbox-manager" ]; then
-  npx skills add ./skills/sandbox-manager >/dev/null 2>&1 || true
-fi
-
-# Ensure lowdb is available for state management
-echo "📦 Installing lowdb for state management..."
-if command -v bun >/dev/null 2>&1; then
-  bun add lowdb >/dev/null 2>&1 || true
-elif command -v npm >/dev/null 2>&1; then
-  npm install lowdb >/dev/null 2>&1 || true
-fi
-
-# Cloudflare Tunnel Auto-Start
-if [ -n "$CF_TUNNEL_TOKEN" ]; then
-    echo "🚇 Starting Cloudflare Tunnel..."
-    if command -v cloudflared >/dev/null; then
-        # Run in background, output to log
-        cloudflared tunnel run --token "$CF_TUNNEL_TOKEN" > /var/log/cloudflared.log 2>&1 &
-        echo "✅ Cloudflare Tunnel active."
-    else
-        echo "⚠️ CF_TUNNEL_TOKEN set but 'cloudflared' binary missing."
-    fi
-fi
-
-# Run the openclaw gateway using the global binary
-openclaw hooks enable boot-md &
-openclaw hooks enable session-memory &
-
-# Run doctor --fix to handle any migrations or permission issues automatically
-if command -v openclaw >/dev/null 2>&1; then
-  echo "🏥 RUNNING OPENCLAW DOCTOR..."
-  openclaw doctor --fix || true
-fi
-
-if [ "${OPENCLAW_PRINT_ACCESS:-1}" = "1" ]; then
-  if [ "${OPENCLAW_BETA:-false}" = "true" ]; then
-    echo "🧪 OPENCLAW BETA MODE ACTIVE"
-  fi
-  echo ""
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "🦞 OPENCLAW READY"
-  echo ""
-  echo "Dashboard:"
-  echo "$BASE_URL/?token=$TOKEN"
-  echo ""
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo ""
-fi
-
+# ----------------------------
+# Run OpenClaw
+# ----------------------------
 exec openclaw gateway run

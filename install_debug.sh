@@ -1341,7 +1341,7 @@ EOF
     fi
 
     echo ""
-    echo -e "FAQ: ${INFO}https://docs.molt.bot/start/faq${NC}"
+    echo -e "FAQ: ${INFO}https://docs.openclaw.ai/start/faq${NC}"
 }
 
 if [[ "${CLAWDBOT_INSTALL_SH_NO_RUN:-0}" != "1" ]]; then
