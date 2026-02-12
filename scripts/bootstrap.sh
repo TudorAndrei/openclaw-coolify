@@ -2,7 +2,7 @@
 set -e
 
 if [ -f "/app/scripts/migrate-to-data.sh" ]; then
-    bash "/app/scripts/migrate-to-data.sh"
+	bash "/app/scripts/migrate-to-data.sh"
 fi
 
 OPENCLAW_STATE="${OPENCLAW_STATE_DIR:-/data/.openclaw}"
@@ -17,46 +17,46 @@ mkdir -p "$OPENCLAW_STATE/agents/main/sessions"
 chmod 700 "$OPENCLAW_STATE/credentials"
 
 for dir in .agents .ssh .config .local .cache .npm .bun .claude .kimi; do
-    if [ ! -L "/root/$dir" ] && [ ! -e "/root/$dir" ]; then
-        ln -sf "/data/$dir" "/root/$dir"
-    fi
+	if [ ! -L "/root/$dir" ] && [ ! -e "/root/$dir" ]; then
+		ln -sf "/data/$dir" "/root/$dir"
+	fi
 done
 
 # ----------------------------
 # Seed Agent Workspaces
 # ----------------------------
 seed_agent() {
-  local id="$1"
-  local name="$2"
-  local dir="/data/openclaw-$id"
+	local id="$1"
+	local name="$2"
+	local dir="/data/openclaw-$id"
 
-  if [ "$id" = "main" ]; then
-    dir="${OPENCLAW_WORKSPACE:-/data/openclaw-workspace}"
-  fi
+	if [ "$id" = "main" ]; then
+		dir="${OPENCLAW_WORKSPACE:-/data/openclaw-workspace}"
+	fi
 
-  mkdir -p "$dir"
+	mkdir -p "$dir"
 
-  # 🔒 NEVER overwrite existing SOUL.md
-  if [ -f "$dir/SOUL.md" ]; then
-    echo "🧠 SOUL.md already exists for $id — skipping"
-    return 0
-  fi
+	# 🔒 NEVER overwrite existing SOUL.md
+	if [ -f "$dir/SOUL.md" ]; then
+		echo "🧠 SOUL.md already exists for $id — skipping"
+		return 0
+	fi
 
-  # ✅ MAIN agent gets ORIGINAL repo SOUL.md and BOOTSTRAP.md
-  if [ "$id" = "main" ]; then
-    if [ -f "./SOUL.md" ] && [ ! -f "$dir/SOUL.md" ]; then
-      echo "✨ Copying original SOUL.md to $dir"
-      cp "./SOUL.md" "$dir/SOUL.md"
-    fi
-    if [ -f "./BOOTSTRAP.md" ] && [ ! -f "$dir/BOOTSTRAP.md" ]; then
-      echo "🚀 Seeding BOOTSTRAP.md to $dir"
-      cp "./BOOTSTRAP.md" "$dir/BOOTSTRAP.md"
-    fi
-    return 0
-  fi
+	# ✅ MAIN agent gets ORIGINAL repo SOUL.md and BOOTSTRAP.md
+	if [ "$id" = "main" ]; then
+		if [ -f "./SOUL.md" ] && [ ! -f "$dir/SOUL.md" ]; then
+			echo "✨ Copying original SOUL.md to $dir"
+			cp "./SOUL.md" "$dir/SOUL.md"
+		fi
+		if [ -f "./BOOTSTRAP.md" ] && [ ! -f "$dir/BOOTSTRAP.md" ]; then
+			echo "🚀 Seeding BOOTSTRAP.md to $dir"
+			cp "./BOOTSTRAP.md" "$dir/BOOTSTRAP.md"
+		fi
+		return 0
+	fi
 
-  # fallback for other agents
-  cat >"$dir/SOUL.md" <<EOF
+	# fallback for other agents
+	cat >"$dir/SOUL.md" <<EOF
 # SOUL.md - $name
 You are OpenClaw, a helpful and premium AI assistant.
 EOF
@@ -68,9 +68,9 @@ seed_agent "main" "OpenClaw"
 # Generate Config with Prime Directive
 # ----------------------------
 if [ ! -f "$CONFIG_FILE" ]; then
-  echo "🏥 Generating openclaw.json with Prime Directive..."
-  TOKEN=$(openssl rand -hex 24 2>/dev/null || node -e "console.log(require('crypto').randomBytes(24).toString('hex'))")
-  cat >"$CONFIG_FILE" <<EOF
+	echo "🏥 Generating openclaw.json with Prime Directive..."
+	TOKEN=$(openssl rand -hex 24 2>/dev/null || node -e "console.log(require('crypto').randomBytes(24).toString('hex'))")
+	cat >"$CONFIG_FILE" <<EOF
 {
 "commands": {
     "native": true,
@@ -148,6 +148,45 @@ EOF
 fi
 
 # ----------------------------
+# Sandbox env passthrough
+# ----------------------------
+if [ -f "$CONFIG_FILE" ] && command -v jq >/dev/null 2>&1; then
+	PASSTHROUGH_RAW="${OPENCLAW_SANDBOX_ENV_PASSTHROUGH:-GROCY_URL,GROCY_API_KEY,GROCY_API_TOKEN,GROCY_BASE_URL}"
+	PASSTHROUGH_LIST="$(printf '%s' "$PASSTHROUGH_RAW" | tr ',' ' ')"
+
+	JQ_FILTER='.agents.defaults.sandbox.docker = (.agents.defaults.sandbox.docker // {}) | .agents.defaults.sandbox.docker.env = (.agents.defaults.sandbox.docker.env // {})'
+	JQ_ARGS=()
+	ADDED_KEYS=0
+
+	for KEY in $PASSTHROUGH_LIST; do
+		case "$KEY" in
+		'' | *[!A-Za-z0-9_]*)
+			continue
+			;;
+		esac
+
+		VALUE="${!KEY:-}"
+		if [ -n "$VALUE" ]; then
+			JQ_ARGS+=(--arg "$KEY" "$VALUE")
+			JQ_FILTER+=" | .agents.defaults.sandbox.docker.env.$KEY = \$$KEY"
+			ADDED_KEYS=$((ADDED_KEYS + 1))
+		fi
+	done
+
+	if [ "$ADDED_KEYS" -gt 0 ]; then
+		TMP_CONFIG="$(mktemp)"
+		jq "${JQ_ARGS[@]}" "$JQ_FILTER" "$CONFIG_FILE" >"$TMP_CONFIG" && mv "$TMP_CONFIG" "$CONFIG_FILE"
+		echo "🔐 Forwarded $ADDED_KEYS env var(s) into sandbox docker env"
+	fi
+
+	if [ -n "${OPENCLAW_SANDBOX_DOCKER_NETWORK:-}" ]; then
+		TMP_CONFIG="$(mktemp)"
+		jq --arg network "$OPENCLAW_SANDBOX_DOCKER_NETWORK" '.agents.defaults.sandbox.docker = (.agents.defaults.sandbox.docker // {}) | .agents.defaults.sandbox.docker.network = $network' "$CONFIG_FILE" >"$TMP_CONFIG" && mv "$TMP_CONFIG" "$CONFIG_FILE"
+		echo "🌐 Sandbox docker network set to: $OPENCLAW_SANDBOX_DOCKER_NETWORK"
+	fi
+fi
+
+# ----------------------------
 # Export state
 # ----------------------------
 export OPENCLAW_STATE_DIR="$OPENCLAW_STATE"
@@ -162,16 +201,16 @@ export OPENCLAW_STATE_DIR="$OPENCLAW_STATE"
 # Recovery & Monitoring
 # ----------------------------
 if [ -f scripts/recover_sandbox.sh ]; then
-  echo "🛡️  Deploying Recovery Protocols..."
-  cp scripts/recover_sandbox.sh "$WORKSPACE_DIR/"
-  cp scripts/monitor_sandbox.sh "$WORKSPACE_DIR/"
-  chmod +x "$WORKSPACE_DIR/recover_sandbox.sh" "$WORKSPACE_DIR/monitor_sandbox.sh"
-  
-  # Run initial recovery
-  bash "$WORKSPACE_DIR/recover_sandbox.sh"
-  
-  # Start background monitor
-  nohup bash "$WORKSPACE_DIR/monitor_sandbox.sh" >/dev/null 2>&1 &
+	echo "🛡️  Deploying Recovery Protocols..."
+	cp scripts/recover_sandbox.sh "$WORKSPACE_DIR/"
+	cp scripts/monitor_sandbox.sh "$WORKSPACE_DIR/"
+	chmod +x "$WORKSPACE_DIR/recover_sandbox.sh" "$WORKSPACE_DIR/monitor_sandbox.sh"
+
+	# Run initial recovery
+	bash "$WORKSPACE_DIR/recover_sandbox.sh"
+
+	# Start background monitor
+	nohup bash "$WORKSPACE_DIR/monitor_sandbox.sh" >/dev/null 2>&1 &
 fi
 
 # ----------------------------
@@ -183,10 +222,10 @@ ulimit -n 65535
 # ----------------------------
 # Try to extract existing token if not already set (e.g. from previous run)
 if [ -f "$CONFIG_FILE" ]; then
-    SAVED_TOKEN=$(jq -r '.gateway.auth.token // empty' "$CONFIG_FILE" 2>/dev/null || grep -o '"token": "[^"]*"' "$CONFIG_FILE" | tail -1 | cut -d'"' -f4)
-    if [ -n "$SAVED_TOKEN" ]; then
-        TOKEN="$SAVED_TOKEN"
-    fi
+	SAVED_TOKEN=$(jq -r '.gateway.auth.token // empty' "$CONFIG_FILE" 2>/dev/null || grep -o '"token": "[^"]*"' "$CONFIG_FILE" | tail -1 | cut -d'"' -f4)
+	if [ -n "$SAVED_TOKEN" ]; then
+		TOKEN="$SAVED_TOKEN"
+	fi
 fi
 
 echo ""
@@ -198,8 +237,8 @@ echo "🔑 Access Token: $TOKEN"
 echo ""
 echo "🌍 Service URL (Local): http://localhost:${OPENCLAW_GATEWAY_PORT:-18789}?token=$TOKEN"
 if [ -n "$SERVICE_FQDN_OPENCLAW" ]; then
-    echo "☁️  Service URL (Public): https://${SERVICE_FQDN_OPENCLAW}?token=$TOKEN"
-    echo "    (Wait for cloud tunnel to propagate if just started)"
+	echo "☁️  Service URL (Public): https://${SERVICE_FQDN_OPENCLAW}?token=$TOKEN"
+	echo "    (Wait for cloud tunnel to propagate if just started)"
 fi
 echo ""
 echo "👉 Onboarding:"
