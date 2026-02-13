@@ -184,6 +184,12 @@ if [ -f "$CONFIG_FILE" ] && command -v jq >/dev/null 2>&1; then
 		jq --arg network "$OPENCLAW_SANDBOX_DOCKER_NETWORK" '.agents.defaults.sandbox.docker = (.agents.defaults.sandbox.docker // {}) | .agents.defaults.sandbox.docker.network = $network' "$CONFIG_FILE" >"$TMP_CONFIG" && mv "$TMP_CONFIG" "$CONFIG_FILE"
 		echo "🌐 Sandbox docker network set to: $OPENCLAW_SANDBOX_DOCKER_NETWORK"
 	fi
+
+	if [ -n "${OPENCLAW_SANDBOX_SETUP_COMMAND:-}" ]; then
+		TMP_CONFIG="$(mktemp)"
+		jq --arg setup "$OPENCLAW_SANDBOX_SETUP_COMMAND" '.agents.defaults.sandbox.docker = (.agents.defaults.sandbox.docker // {}) | .agents.defaults.sandbox.docker.setupCommand = $setup' "$CONFIG_FILE" >"$TMP_CONFIG" && mv "$TMP_CONFIG" "$CONFIG_FILE"
+		echo "🧰 Sandbox setupCommand configured"
+	fi
 fi
 
 # ----------------------------

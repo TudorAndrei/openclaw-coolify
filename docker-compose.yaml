@@ -16,8 +16,6 @@ services:
       nofile:
         soft: 65535
         hard: 65535
-    env_file:
-      - .env
     environment:
       DOCKER_HOST: tcp://docker-proxy:2375
       OPENCLAW_ENABLE_WEBHOOK_PROXY: "1"
@@ -42,6 +40,8 @@ services:
       # Tell the binary where to look for state/config
       OPENCLAW_STATE_DIR: /data/.openclaw
       OPENCLAW_WORKSPACE: /data/openclaw-workspace
+      OPENCLAW_SANDBOX_DOCKER_NETWORK: ${OPENCLAW_SANDBOX_DOCKER_NETWORK:-bridge}
+      OPENCLAW_SANDBOX_SETUP_COMMAND: ${OPENCLAW_SANDBOX_SETUP_COMMAND:-apt-get update && apt-get install -y git ca-certificates curl jq}
 
       # API Keys injected from .env or Coolify
       OPENAI_API_KEY: ${OPENAI_API_KEY}
@@ -66,7 +66,6 @@ services:
       # Bootstrap controls
       OPENCLAW_AUTO_BOOTSTRAP: "1"
       OPENCLAW_PRINT_ACCESS: "1"
-      GATEWAY_TRUSTED_PROXIES: '*'
       # Fix for EMFILE/Inotify issues in Docker
       CHOKIDAR_USEPOLLING: "true"
       # Public URL Access
@@ -84,8 +83,6 @@ services:
 
     volumes:
       - openclaw-data:/data
-      - openclaw-config:/root/.openclaw
-      - openclaw-workspace:/root/openclaw-workspace
 
       # Secure: Socket mount removed in favor of proxy
       # - /var/run/docker.sock:/var/run/docker.sock
@@ -136,7 +133,5 @@ services:
 
 volumes:
   openclaw-data:
-  openclaw-config:
-  openclaw-workspace:
   searxng-data:
   registry-data:
