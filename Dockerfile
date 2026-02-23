@@ -86,6 +86,9 @@ ENV BUN_INSTALL_NODE=0 \
 # Install Bun
 RUN curl -fsSL https://bun.sh/install | bash
 
+# Ensure node-gyp is available for native npm modules (e.g. better-sqlite3)
+RUN npm install -g node-gyp
+
 # Python tools
 RUN pip3 install ipython csvkit openpyxl python-docx pypdf botasaurus browser-use playwright --break-system-packages && \
   playwright install-deps
