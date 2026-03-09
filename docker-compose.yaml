@@ -6,12 +6,23 @@ services:
       - registry-data:/var/lib/registry
     environment:
       REGISTRY_HTTP_SECRET: ${SERVICE_BASE64_REGISTRY}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          if command -v wget >/dev/null 2>&1; then wget -q --spider http://127.0.0.1:5000/v2/;
+          elif command -v curl >/dev/null 2>&1; then curl -fsS http://127.0.0.1:5000/v2/ >/dev/null;
+          else exit 1; fi
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
   openclaw:
     build:
       context: .
       args:
         - OPENCLAW_BETA=${OPENCLAW_BETA:-false}
-        - OPENCLAW_VERSION=${OPENCLAW_VERSION:-2026.2.22-2}
+        - OPENCLAW_VERSION=${OPENCLAW_VERSION:-2026.3.8}
     restart: on-failure:10
     ulimits:
       nofile:
@@ -89,11 +100,17 @@ services:
       # - /var/run/docker.sock:/var/run/docker.sock
 
     depends_on:
-      - docker-proxy
+      docker-proxy:
+        condition: service_healthy
 
     command: ["bash", "/app/scripts/bootstrap.sh"]
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:18789/"]
+      test:
+        - CMD-SHELL
+        - >-
+          if command -v curl >/dev/null 2>&1; then curl -fsS "http://127.0.0.1:${OPENCLAW_GATEWAY_PORT:-18789}/" >/dev/null;
+          elif command -v wget >/dev/null 2>&1; then wget -q --spider "http://127.0.0.1:${OPENCLAW_GATEWAY_PORT:-18789}/";
+          else exit 1; fi
       interval: 30s
       timeout: 10s
       retries: 3
@@ -114,6 +131,17 @@ services:
       VERSION: 1
       EXEC: 1       # Run commands (exec)
       EVENTS: 1     # Listen for events (if needed)
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          if command -v wget >/dev/null 2>&1; then wget -q --spider http://127.0.0.1:2375/_ping;
+          elif command -v curl >/dev/null 2>&1; then curl -fsS http://127.0.0.1:2375/_ping >/dev/null;
+          else exit 1; fi
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
 
   searxng:
     build:
@@ -131,6 +159,17 @@ services:
       - CHOWN
       - SETGID
       - SETUID
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          if command -v curl >/dev/null 2>&1; then curl -fsS http://127.0.0.1:8080/ >/dev/null;
+          elif command -v wget >/dev/null 2>&1; then wget -q --spider http://127.0.0.1:8080/;
+          else exit 1; fi
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
 volumes:
   openclaw-data:
